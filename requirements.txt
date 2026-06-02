@@ -1,0 +1,8 @@
+pandas
+yfinance
+gspread
+google-auth
+requests
+schedule
+pytz
+python-dotenv
