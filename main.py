@@ -8,16 +8,19 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytz
 
 from config import validar_config, enviar_mensaje_telegram
-from conexion import vigilar_cartera_con_riesgo
-from escaner import escanear_mercado
+from conexion import enviar_alertas_cartera_si_corresponde
+from escaner import ejecutar_escaneo_y_registrar, enviar_resumen_alertas_del_dia
+from estado_dia import limpiar_alertas
+from telegram_comandos import escuchar_comandos_telegram
 
 ZONA_BA = pytz.timezone("America/Argentina/Buenos_Aires")
 
-# Lunes a viernes — hora Argentina
-HORARIO_CARTERA = (11, 30)
-HORARIO_ESCANER = (16, 40)
+HORARIO_CIERRE = (16, 40)
+ESCANEO_HORA_INICIO = 10
+ESCANEO_HORA_FIN = 16
+ESCANEO_MINUTOS = (0, 30)
 
-ultima_ejecucion = {"cartera": None, "escaner": None}
+ultima_ejecucion = {"cierre": None, "escaneo": None}
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -39,14 +42,15 @@ def iniciar_servidor_salud():
     print(f"🌐 Health check en puerto {port}")
 
 
-def tarea_cartera():
-    print(f"[{datetime.now(ZONA_BA)}] 🚀 Ejecutando control de Cartera...")
-    vigilar_cartera_con_riesgo()
+def tarea_cierre_del_dia():
+    print(f"[{datetime.now(ZONA_BA)}] 📬 Cierre del día (16:40)...")
+    enviar_resumen_alertas_del_dia()
+    enviar_alertas_cartera_si_corresponde()
+    limpiar_alertas()
 
 
-def tarea_escaner():
-    print(f"[{datetime.now(ZONA_BA)}] 🚀 Ejecutando escáner de Mercado...")
-    escanear_mercado()
+def _slot_escaneo(ahora):
+    return (ahora.date(), ahora.hour, ahora.minute)
 
 
 def revisar_horarios():
@@ -56,15 +60,19 @@ def revisar_horarios():
 
     fecha_hoy = ahora.date()
 
-    if ahora.hour == HORARIO_CARTERA[0] and ahora.minute == HORARIO_CARTERA[1]:
-        if ultima_ejecucion["cartera"] != fecha_hoy:
-            ultima_ejecucion["cartera"] = fecha_hoy
-            tarea_cartera()
+    if (
+        ESCANEO_HORA_INICIO <= ahora.hour <= ESCANEO_HORA_FIN
+        and ahora.minute in ESCANEO_MINUTOS
+    ):
+        slot = _slot_escaneo(ahora)
+        if ultima_ejecucion["escaneo"] != slot:
+            ultima_ejecucion["escaneo"] = slot
+            ejecutar_escaneo_y_registrar()
 
-    if ahora.hour == HORARIO_ESCANER[0] and ahora.minute == HORARIO_ESCANER[1]:
-        if ultima_ejecucion["escaner"] != fecha_hoy:
-            ultima_ejecucion["escaner"] = fecha_hoy
-            tarea_escaner()
+    if ahora.hour == HORARIO_CIERRE[0] and ahora.minute == HORARIO_CIERRE[1]:
+        if ultima_ejecucion["cierre"] != fecha_hoy:
+            ultima_ejecucion["cierre"] = fecha_hoy
+            tarea_cierre_del_dia()
 
 
 def main():
@@ -75,14 +83,17 @@ def main():
 
     iniciar_servidor_salud()
 
+    threading.Thread(target=escuchar_comandos_telegram, daemon=True).start()
+
     enviar_mensaje_telegram(
-        "✅ *Bot ASL en Railway*\n"
-        "Programado lun–vie:\n"
-        "• Cartera 11:30 (AR)\n"
-        "• Escáner 16:40 (AR)"
+        "✅ *Bot ASL en Railway*\n\n"
+        "Lun–vie (hora Argentina):\n"
+        "• Escaneo cada 30 min (10:00–16:30)\n"
+        "• Resumen alertas + cartera SL/TP a las *16:40*\n\n"
+        "Escribí `/ayuda` para abrir/cerrar trades y cargar SL/TP."
     )
 
-    print("✅ Bot ASL iniciado. Esperando horarios (hora Argentina)...")
+    print("✅ Bot ASL iniciado (escaneo continuo + cierre 16:40)...")
     while True:
         revisar_horarios()
         time.sleep(30)
