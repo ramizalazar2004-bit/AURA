@@ -1,0 +1,4 @@
+cd D:\ASL
+git add conexion.py config.py main.py escaner.py requirements.txt railway.toml Procfile
+git commit -m "Fix: config centralizado e import json para Railway"
+git push origin main
