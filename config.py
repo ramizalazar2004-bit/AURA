@@ -9,6 +9,26 @@ from google.oauth2.service_account import Credentials
 
 load_dotenv()
 
+
+def configurar_salida_consola():
+    """Evita UnicodeEncodeError en consola Windows (cp1252) con emojis en print."""
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def log(msg):
+    try:
+        print(msg, flush=True)
+    except UnicodeEncodeError:
+        print(str(msg).encode("ascii", errors="replace").decode("ascii"), flush=True)
+
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RUTA_GOOGLE = os.getenv("RUTA_GOOGLE", "credenciales.json")
@@ -19,6 +39,23 @@ ALCANCE_GOOGLE = [
 ]
 
 
+def en_railway():
+    """True cuando el proceso corre en un servicio de Railway."""
+    return any(
+        os.getenv(k)
+        for k in (
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_ENVIRONMENT_NAME",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_PROJECT_ID",
+        )
+    )
+
+
+def permitir_ejecucion_local():
+    return os.getenv("ALLOW_LOCAL", "").strip().lower() in ("1", "true", "yes")
+
+
 def validar_config():
     faltan = []
     if not TELEGRAM_TOKEN:
@@ -26,8 +63,8 @@ def validar_config():
     if not TELEGRAM_CHAT_ID:
         faltan.append("TELEGRAM_CHAT_ID")
     if not os.getenv("GOOGLE_CREDENTIALS") and not os.getenv("GOOGLE_CREDENTIALS_BASE64"):
-        if not os.path.isfile(RUTA_GOOGLE):
-            faltan.append("GOOGLE_CREDENTIALS o GOOGLE_CREDENTIALS_BASE64")
+        if en_railway() or not os.path.isfile(RUTA_GOOGLE):
+            faltan.append("GOOGLE_CREDENTIALS_BASE64 (variable en Railway)")
     return faltan
 
 
@@ -57,6 +94,11 @@ def _cargar_dict_credenciales():
     raw = os.getenv("GOOGLE_CREDENTIALS")
     if raw:
         return _parsear_json_credenciales(raw)
+
+    if en_railway():
+        raise ValueError(
+            "Configurá GOOGLE_CREDENTIALS_BASE64 en Railway (Variables del servicio)."
+        )
 
     with open(RUTA_GOOGLE, encoding="utf-8") as archivo:
         return json.load(archivo)
@@ -101,8 +143,13 @@ def enviar_mensaje_telegram(texto_mensaje):
     try:
         respuesta = requests.post(url, json=payload, timeout=30)
         if respuesta.status_code != 200:
-            print(f"⚠️ Error al enviar a Telegram: {respuesta.text}")
+            detalle = respuesta.text
+            if respuesta.status_code == 404:
+                destino = "Railway (Variables)" if en_railway() else ".env local"
+                log(f"Error Telegram 404: token invalido. Revisa TELEGRAM_TOKEN en {destino}.")
+            else:
+                log(f"Error al enviar a Telegram ({respuesta.status_code}): {detalle}")
         return respuesta.status_code == 200
     except Exception as e:
-        print(f"❌ Falló la conexión con la API de Telegram: {e}")
+        log(f"❌ Falló la conexión con la API de Telegram: {e}")
         return False

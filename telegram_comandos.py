@@ -22,12 +22,15 @@ AYUDA_TEXTO = (
     "Ej: `/cerrar GLOB`\n\n"
     "*MemoriaBot* (SL / TP):\n"
     "`/memoria TICKER_EEUU SL TP`\n"
-    "Ej: `/memoria GLOB 22 28`\n\n"
+    "SL: precio (`22`) o media (`SMA20`, `EMA9`, `MM50`)\n"
+    "Ej: `/memoria GLOB SMA20 28`\n\n"
     "Consultar memoria:\n"
     "`/ver GLOB`\n\n"
     "Horarios (lun–vie, AR):\n"
     "• Escaneo cada 30 min (10:00–16:30)\n"
-    "• Resumen + cartera SL/TP a las *16:40*"
+    "• Cartera SL/TP cada 30 min (10:00–16:30)\n"
+    "• Seguimiento operaciones *10:30*\n"
+    "• Cierre alertas + cartera a las *16:40*"
 )
 
 
@@ -46,13 +49,13 @@ def _procesar_texto(texto):
         return
 
     match = re.match(
-        r"^/?memoria\s+([A-Za-z0-9.\-]+)\s+([\d.,]+)\s+([\d.,]+)\s*$",
+        r"^/?memoria\s+([A-Za-z0-9.\-]+)\s+(\S+)\s+([\d.,]+)\s*$",
         texto,
         re.IGNORECASE,
     )
     if match:
         ticker = match.group(1)
-        sl = float(match.group(2).replace(",", "."))
+        sl = match.group(2).strip().upper()
         tp = float(match.group(3).replace(",", "."))
         try:
             accion, t, sl_v, tp_v = guardar_memoria_bot(ticker, sl, tp)

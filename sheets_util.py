@@ -102,6 +102,8 @@ def _indice_columna(encabezados, nombres_posibles):
 
 def guardar_memoria_bot(ticker, stop_loss, take_profit):
     ticker = ticker.strip().upper()
+    stop_loss = str(stop_loss).strip()
+    take_profit = str(take_profit).strip()
     hoja = obtener_hoja_memoria()
     filas = hoja.get_all_values()
 
