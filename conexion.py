@@ -1,20 +1,11 @@
+import json
+
 import gspread
-from google.oauth2.service_account import Credentials
 import yfinance as yf
 import pandas as pd
-import requests
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+from config import enviar_mensaje_telegram, obtener_credenciales_google
 
-# ==========================================
-# ⚙️ CONFIGURACIÓN DE TELEGRAM Y GOOGLE
-# ==========================================
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-RUTA_GOOGLE = os.getenv('RUTA_GOOGLE', 'credenciales.json')
-# ==========================================
 
 def limpiar_precio(texto_precio):
     limpio = str(texto_precio).upper().replace('USD', '').replace('$', '').replace(' ', '').replace(',', '.')
@@ -23,35 +14,9 @@ def limpiar_precio(texto_precio):
     except ValueError:
         return 0.0
 
-def enviar_mensaje_telegram(texto_mensaje):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": texto_mensaje,
-        "parse_mode": "Markdown"
-    }
-    try:
-        respuesta = requests.post(url, json=payload)
-        if respuesta.status_code != 200:
-            print(f"⚠️ Error al enviar a Telegram: {respuesta.text}")
-    except Exception as e:
-        print(f"❌ Falló la conexión con la API de Telegram: {e}")
-
 def vigilar_cartera_con_riesgo():
     print("🔌 Conectando con los servidores de Google...")
-    alcance = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    
-    credenciales = None
-    google_creds_env = os.getenv('GOOGLE_CREDENTIALS')
-    
-    if google_creds_env:
-        # Cargar desde variable de entorno (ideal para Railway / Nube)
-        creds_dict = json.loads(google_creds_env)
-        credenciales = Credentials.from_service_account_info(creds_dict, scopes=alcance)
-    else:
-        # Cargar desde archivo local
-        credenciales = Credentials.from_service_account_file(RUTA_GOOGLE, scopes=alcance)
-        
+    credenciales = obtener_credenciales_google()
     cliente = gspread.authorize(credenciales)
     
     try:
@@ -107,7 +72,6 @@ def vigilar_cartera_con_riesgo():
             else:
                 texto_activo = f"⚠️ *{ticker}*: Error al leer datos.\n\n"
                 
-            # Control de caracteres para Telegram (límite holgado de 3500)
             if len(reporte) + len(texto_activo) > 3500:
                 enviar_mensaje_telegram(reporte)
                 parte_mensaje += 1
@@ -115,7 +79,6 @@ def vigilar_cartera_con_riesgo():
                 
             reporte += texto_activo
 
-        # Disparo final
         if len(reporte) > 0 and not reporte.endswith(")*\n\n"):
             enviar_mensaje_telegram(reporte)
             
@@ -124,4 +87,5 @@ def vigilar_cartera_con_riesgo():
     except Exception as e:
         print(f"❌ Ocurrió un error crítico: {e}")
 
-vigilar_cartera_con_riesgo()
+if __name__ == "__main__":
+    vigilar_cartera_con_riesgo()

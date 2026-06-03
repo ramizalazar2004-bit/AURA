@@ -1,47 +1,13 @@
 import gspread
-from google.oauth2.service_account import Credentials
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests  # Reemplazamos Twilio por requests
 import logging
 from concurrent.futures import ThreadPoolExecutor
-import os
-import json
-from dotenv import load_dotenv
-
-load_dotenv()
+from config import enviar_mensaje_telegram, obtener_credenciales_google
 
 # Silenciamos advertencias de Yahoo Finance
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
-
-# ==========================================
-# ⚙️ CONFIGURACIÓN DE TELEGRAM Y GOOGLE
-# ==========================================
-# 1. Pegá acá el Token que te dio BotFather
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-
-# 2. Pegá acá tu número de ID que te dio userinfobot
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-# 3. La ruta a tu archivo de credenciales de Google Sheets
-RUTA_GOOGLE = os.getenv('RUTA_GOOGLE', 'credenciales.json')
-# ==========================================
-
-# --- FUNCIÓN DE ENVÍO DE TELEGRAM ---
-def enviar_mensaje_telegram(texto_mensaje):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": texto_mensaje,
-        "parse_mode": "Markdown"  # Permite usar asteriscos para negrita
-    }
-    try:
-        respuesta = requests.post(url, json=payload)
-        if respuesta.status_code != 200:
-            print(f"⚠️ Error al enviar a Telegram: {respuesta.text}")
-    except Exception as e:
-        print(f"❌ Falló la conexión con la API de Telegram: {e}")
 
 # --- FUNCIONES MATEMÁTICAS ---
 def calcular_wma(serie_precios, longitud):
@@ -175,8 +141,7 @@ def analizar_un_ticker(ticker):
 # --- MOTOR PRINCIPAL ---
 def escanear_mercado():
     print("🔌 Iniciando escáner...")
-    alcance = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    credenciales = Credentials.from_service_account_file(RUTA_GOOGLE, scopes=alcance)
+    credenciales = obtener_credenciales_google()
     cliente = gspread.authorize(credenciales)
     
     try:
@@ -227,15 +192,5 @@ def escanear_mercado():
     except Exception as e:
         print(f"❌ Ocurrió un error crítico: {e}")
 
-escanear_mercado()    
-                reporte += alerta
-            
-            if len(reporte) > 0 and not reporte.endswith(")*\n\n"):
-                enviar_mensaje_telegram(reporte)
-                
-            print(f"✅ ¡{len(alertas_positivas)} alertas enviadas por Telegram!")
-
-    except Exception as e:
-        print(f"❌ Ocurrió un error crítico: {e}")
-
-escanear_mercado()
+if __name__ == "__main__":
+    escanear_mercado()
