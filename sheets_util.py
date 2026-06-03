@@ -33,19 +33,29 @@ def _celda(fila, indice_cero):
     return ""
 
 
+def _fila_esta_libre(fila):
+    # Fila disponible si la columna Operación (C) está vacía
+    return not _celda(fila, 2)
+
+
+def _asegurar_capacidad_fila(hoja, num_fila):
+    if num_fila > hoja.row_count:
+        hoja.add_rows(num_fila - hoja.row_count)
+
+
 def _primera_fila_libre_renta(hoja):
     valores = hoja.get_all_values()
-    ultima = max(len(valores), FILA_INICIO_RENTA - 1)
+    limite = hoja.row_count
 
-    for num_fila in range(FILA_INICIO_RENTA, ultima + 2):
-        if num_fila <= len(valores):
-            fila = valores[num_fila - 1]
-        else:
-            fila = []
-        if not _celda(fila, 2) and not _celda(fila, 4) and not _celda(fila, 5):
+    for num_fila in range(FILA_INICIO_RENTA, limite + 1):
+        fila = valores[num_fila - 1] if num_fila <= len(valores) else []
+        if _fila_esta_libre(fila):
             return num_fila
 
-    return ultima + 1
+    # Filas 98–N llenas: ampliar la hoja y usar la siguiente fila
+    num_fila = max(limite, len(valores), FILA_INICIO_RENTA - 1) + 1
+    _asegurar_capacidad_fila(hoja, num_fila)
+    return num_fila
 
 
 def abrir_trade_renta(ticker_arg, ticker_eeuu, precio_ars, precio_usd):
@@ -53,6 +63,7 @@ def abrir_trade_renta(ticker_arg, ticker_eeuu, precio_ars, precio_usd):
     ticker_eeuu = ticker_eeuu.strip().upper()
     hoja = obtener_hoja_renta()
     num_fila = _primera_fila_libre_renta(hoja)
+    _asegurar_capacidad_fila(hoja, num_fila)
 
     hoja.update_cell(num_fila, COL_OPERACION, "ABIERTA")
     hoja.update_cell(num_fila, COL_TICKER_ARG, ticker_arg)

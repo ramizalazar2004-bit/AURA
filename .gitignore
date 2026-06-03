@@ -1,6 +1,7 @@
 # Archivos de entorno y credenciales
 .env
 credenciales.json
+railway_google_base64.txt
 
 # Entorno virtual y caché de Python
 .venv/
