@@ -24,9 +24,10 @@ En el servicio → **Variables** → agregar:
 |----------|--------|
 | `TELEGRAM_TOKEN` | Token de @BotFather |
 | `TELEGRAM_CHAT_ID` | Tu chat ID numérico |
-| `GOOGLE_CREDENTIALS` | Contenido **completo** de `credenciales.json` en **una sola línea** |
+| `GOOGLE_CREDENTIALS_BASE64` | **Recomendado.** Generarlo en tu PC con `python generar_google_env.py` y pegar el valor |
+| `GOOGLE_CREDENTIALS` | Alternativa: JSON en una línea (suele romper la clave `private_key`) |
 
-Para `GOOGLE_CREDENTIALS`: abrí `credenciales.json`, copiá todo el JSON y pegalo como valor de la variable (sin saltos de línea extra si Railway lo permite; si falla, minificá el JSON en [jsonformatter.org](https://jsonformatter.org)).
+Si ves `MalformedFraming` o `Unable to load PEM file`, la clave privada se pegó mal. Usá **GOOGLE_CREDENTIALS_BASE64** y borrá la variable `GOOGLE_CREDENTIALS` vieja en Railway.
 
 ## 4. Horarios automáticos (hora Argentina)
 
