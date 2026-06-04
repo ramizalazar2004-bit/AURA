@@ -174,7 +174,7 @@ def main():
         "• Cartera SL/TP cada 30 min (10:00–16:40)\n"
         "• Seguimiento operaciones abiertas *10:30*\n"
         "• Cierre alertas + cartera a las *16:40*\n\n"
-        "SL en planilla: precio (`22`) o media (`SMA20`, `EMA9`).\n"
+        "SL en planilla: precio, `ASL21`, `SMA30` o media (`SMA20`).\n"
         "Escribí `/ayuda` para comandos."
     )
 

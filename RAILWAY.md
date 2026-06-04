@@ -43,7 +43,7 @@ Copiá el valor al portapapeles y pegalo en Railway → **GOOGLE_CREDENTIALS_BAS
 | Seguimiento operaciones abiertas | 10:30 (se recupera si el deploy fue tarde) |
 | Cierre alertas + cartera | 16:40 |
 
-**MemoriaBot — Stop Loss:** precio (`22.5`) o media (`SMA20`, `EMA9`). **Take Profit:** precio.
+**MemoriaBot — Stop Loss:** precio (`22.5`), indicador (`ASL21`, `SMA30`) o media (`SMA20`, `EMA9`). **Take Profit:** precio.
 
 Comandos Telegram: `/ayuda`, `/abrir`, `/cerrar`, `/memoria`, `/ver`
 

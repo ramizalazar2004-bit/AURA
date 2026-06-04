@@ -5,6 +5,7 @@ import pandas as pd
 import yfinance as yf
 
 from config import enviar_mensaje_telegram, log, obtener_credenciales_google
+from indicadores import INDICADORES_SL, nivel_indicador
 from estado_dia import (
     limpiar_alertas_cartera,
     marcar_alerta_cartera_enviada,
@@ -48,7 +49,11 @@ def parsear_stop_loss(texto):
         return None
 
     raw = str(texto).strip()
-    compacto = raw.upper().replace(" ", "")
+    compacto = raw.upper().replace(" ", "").replace("_", "")
+
+    if compacto in INDICADORES_SL:
+        return {"tipo": "indicador", "nombre": compacto, "texto": compacto}
+
     match = _RE_MA.match(compacto)
     if match:
         tipo = match.group(1).upper()
@@ -109,6 +114,11 @@ def resolver_nivel_sl(spec_sl, ticker):
         return None, "sin configurar"
     if spec_sl["tipo"] == "precio":
         return spec_sl["valor"], spec_sl["texto"]
+    if spec_sl["tipo"] == "indicador":
+        nivel = nivel_indicador(ticker, spec_sl["nombre"])
+        if nivel is None:
+            return None, f"{spec_sl['texto']} (sin datos)"
+        return nivel, f"{spec_sl['texto']} = ${nivel:.2f}"
     ma = calcular_media_movil(ticker, spec_sl)
     if ma is None:
         return None, f"{spec_sl['texto']} (sin datos)"
