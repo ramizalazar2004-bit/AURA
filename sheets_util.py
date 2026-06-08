@@ -15,6 +15,17 @@ COL_PRECIO_USD = 15  # O - precio entrada USD
 FILA_INICIO_RENTA = 98
 
 
+def celda_renta(fila, col_1based):
+    idx = col_1based - 1
+    if idx < len(fila):
+        return str(fila[idx]).strip()
+    return ""
+
+
+def es_operacion_abierta(valor):
+    return valor.strip().upper() in ("ABIERTA", "ABIERTO", "OPEN")
+
+
 def _cliente():
     return gspread.authorize(obtener_credenciales_google())
 

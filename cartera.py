@@ -6,6 +6,16 @@ import yfinance as yf
 
 from config import enviar_mensaje_telegram, log, obtener_credenciales_google
 from indicadores import INDICADORES_SL, nivel_indicador
+from sheets_util import (
+    COL_OPERACION,
+    COL_PRECIO_ARS,
+    COL_PRECIO_USD,
+    COL_TICKER_ARG,
+    COL_TICKER_EEUU,
+    FILA_INICIO_RENTA,
+    celda_renta,
+    es_operacion_abierta,
+)
 from estado_dia import (
     limpiar_alertas_cartera,
     marcar_alerta_cartera_enviada,
@@ -90,6 +100,46 @@ def precio_actual(ticker):
     return float(serie.iloc[-1])
 
 
+def _simbolos_yfinance(ticker_eeuu, ticker_arg):
+    """Candidatos para cotización: EEUU primero, luego CEDEAR .BA."""
+    vistos = set()
+    candidatos = []
+    for raw in (ticker_eeuu, ticker_arg):
+        if not raw:
+            continue
+        sym = raw.strip().upper()
+        if sym and sym not in vistos:
+            vistos.add(sym)
+            candidatos.append(sym)
+        if sym and "." not in sym:
+            ba = f"{sym}.BA"
+            if ba not in vistos:
+                vistos.add(ba)
+                candidatos.append(ba)
+    return candidatos
+
+
+def precio_actual_posicion(pos):
+    for simbolo in pos.get("simbolos_yf") or []:
+        precio = precio_actual(simbolo)
+        if precio is not None:
+            return precio, simbolo
+    return None, None
+
+
+def _resolver_entrada(fila, ticker_eeuu, ticker_arg):
+    """Precio de entrada: USD (col O) si hay ticker EEUU; si no, ARS (col N)."""
+    usd = limpiar_precio(celda_renta(fila, COL_PRECIO_USD))
+    ars = limpiar_precio(celda_renta(fila, COL_PRECIO_ARS))
+    if ticker_eeuu and usd > 0:
+        return usd, "USD"
+    if ars > 0:
+        return ars, "ARS"
+    if usd > 0:
+        return usd, "USD"
+    return 0.0, None
+
+
 def calcular_media_movil(ticker, spec_sl):
     periodos = spec_sl["periodos"]
     tipo = spec_sl["tipo"]
@@ -154,15 +204,21 @@ def listar_posiciones_abiertas():
     datos_crudos = hoja_cartera.get_all_values()
     posiciones = []
 
-    for fila in datos_crudos:
-        if len(fila) <= 15 or fila[2].strip().upper() != "ABIERTA":
+    for num_fila, fila in enumerate(datos_crudos, start=1):
+        if num_fila < FILA_INICIO_RENTA:
             continue
-        ticker_arg = fila[4].strip().upper() if len(fila) > 4 else ""
-        ticker_eeuu = fila[5].strip().upper() if len(fila) > 5 else ""
+        if not es_operacion_abierta(celda_renta(fila, COL_OPERACION)):
+            continue
+
+        ticker_arg = celda_renta(fila, COL_TICKER_ARG).upper()
+        ticker_eeuu = celda_renta(fila, COL_TICKER_EEUU).upper()
         ticker = ticker_eeuu or ticker_arg
-        entrada = limpiar_precio(fila[14])
-        if not ticker or entrada <= 0:
+        if not ticker:
             continue
+
+        entrada, moneda_entrada = _resolver_entrada(fila, ticker_eeuu, ticker_arg)
+        simbolos_yf = _simbolos_yfinance(ticker_eeuu, ticker_arg)
+        symbol_yf = simbolos_yf[0] if simbolos_yf else ticker
 
         fila_mem = _buscar_memoria(memoria, ticker_eeuu) or _buscar_memoria(
             memoria, ticker_arg
@@ -172,28 +228,41 @@ def listar_posiciones_abiertas():
                 "ticker": ticker,
                 "ticker_arg": ticker_arg,
                 "ticker_eeuu": ticker_eeuu,
+                "symbol_yf": symbol_yf,
+                "simbolos_yf": simbolos_yf,
                 "entrada": entrada,
+                "moneda_entrada": moneda_entrada,
+                "fila": num_fila,
                 "memoria": fila_mem,
             }
         )
     return posiciones
 
 
-def _analizar_posicion(pos, precio=None):
+def _analizar_posicion(pos, precio=None, symbol_cotizacion=None):
     ticker = pos["ticker"]
     entrada = pos["entrada"]
     fila_mem = pos["memoria"]
+    symbol_yf = symbol_cotizacion or pos.get("symbol_yf") or ticker
 
-    precio_actual_val = precio if precio is not None else precio_actual(ticker)
-    if precio_actual_val is None:
-        return {
-            "ticker": ticker,
-            "error": "sin cotización",
-            "entrada": entrada,
-        }
+    if precio is not None:
+        precio_actual_val = precio
+    else:
+        precio_actual_val, symbol_yf = precio_actual_posicion(pos)
+        if precio_actual_val is None:
+            simbolos = ", ".join(pos.get("simbolos_yf") or [ticker])
+            return {
+                "ticker": ticker,
+                "error": f"sin cotizacion ({simbolos})",
+                "entrada": entrada,
+            }
 
-    rendimiento = ((precio_actual_val - entrada) / entrada) * 100
-    estado = "🟢" if rendimiento > 0 else "🔴"
+    if entrada > 0:
+        rendimiento = ((precio_actual_val - entrada) / entrada) * 100
+        estado = "🟢" if rendimiento > 0 else "🔴"
+    else:
+        rendimiento = 0.0
+        estado = "⚪"
 
     spec_sl = None
     spec_tp = None
@@ -201,7 +270,7 @@ def _analizar_posicion(pos, precio=None):
         spec_sl = parsear_stop_loss(fila_mem.get("Stop Loss", ""))
         spec_tp = parsear_take_profit(fila_mem.get("Take Profit", ""))
 
-    nivel_sl, desc_sl = resolver_nivel_sl(spec_sl, ticker)
+    nivel_sl, desc_sl = resolver_nivel_sl(spec_sl, symbol_yf)
     nivel_tp = spec_tp["valor"] if spec_tp else None
     desc_tp = spec_tp["texto"] if spec_tp else "sin configurar"
 
@@ -235,9 +304,14 @@ def _analizar_posicion(pos, precio=None):
 
 
 def _linea_base(info):
+    if info.get("entrada", 0) > 0:
+        return (
+            f"{info['estado']} *{info['ticker']}* | Comp: ${info['entrada']:.2f} | "
+            f"Act: ${info['precio']:.2f} ({info['rendimiento']:+.2f}%)"
+        )
     return (
-        f"{info['estado']} *{info['ticker']}* | Comp: ${info['entrada']:.2f} | "
-        f"Act: ${info['precio']:.2f} ({info['rendimiento']:+.2f}%)"
+        f"{info['estado']} *{info['ticker']}* | Act: ${info['precio']:.2f} "
+        f"(sin precio de entrada en planilla)"
     )
 
 
@@ -348,54 +422,35 @@ def enviar_seguimiento_operaciones_abiertas():
 
 
 def enviar_cierre_cartera():
-    """Cierre 16:40: estado SL/TP del día y posiciones abiertas."""
+    """Cierre 16:40: solo tickers con SL o TP disparado (no lista toda la cartera)."""
     log("Cierre de cartera (16:40)...")
     posiciones = listar_posiciones_abiertas()
     if not posiciones:
         enviar_mensaje_telegram(
             "📊 *CIERRE CARTERA (16:40)*\n\nSin operaciones abiertas en Renta Variable."
         )
+        limpiar_alertas_cartera()
         return
 
-    lineas = []
+    lineas_disparo = []
     ejecutados_sl = []
     ejecutados_tp = []
-    avisos = []
 
     for pos in posiciones:
         info = _analizar_posicion(pos)
         if info.get("error"):
-            lineas.append(f"⚠️ *{pos['ticker']}*: {info['error']}")
             continue
-
-        if info["falta_sl"] or info["falta_tp"]:
-            partes = []
-            if info["falta_sl"]:
-                partes.append("Stop Loss")
-            if info["falta_tp"]:
-                partes.append("Take Profit")
-            avisos.append(f"⚠️ *{info['ticker']}*: falta {' y '.join(partes)}.")
 
         if info["disparo_sl"]:
             ejecutados_sl.append(info["ticker"])
-            lineas.append(
+            lineas_disparo.append(
                 f"{_linea_base(info)}\n ↳ 🚨 *STOP LOSS* — condición cumplida ({info['desc_sl']})\n"
             )
         elif info["disparo_tp"]:
             ejecutados_tp.append(info["ticker"])
-            lineas.append(
+            lineas_disparo.append(
                 f"{_linea_base(info)}\n ↳ 💰 *TAKE PROFIT* — condición cumplida ({info['desc_tp']})\n"
             )
-        else:
-            if not info["falta_sl"]:
-                dist_sl = ((info["precio"] - info["nivel_sl"]) / info["nivel_sl"]) * 100
-                lineas.append(
-                    f"{_linea_base(info)}\n ↳ SL ({info['desc_sl']}): "
-                    f"{'por encima' if dist_sl >= 0 else 'por debajo'} "
-                    f"({dist_sl:+.1f}% vs nivel)\n"
-                )
-            else:
-                lineas.append(f"{_linea_base(info)}\n ↳ SL: no configurado\n")
 
     resumen = "📊 *CIERRE CARTERA (16:40)*\n\n"
     if ejecutados_sl:
@@ -404,12 +459,13 @@ def enviar_cierre_cartera():
         resumen += "✅ *Stop Loss:* ningún disparo al cierre.\n"
     if ejecutados_tp:
         resumen += f"💰 *Take Profit:* {', '.join(ejecutados_tp)}\n"
-    resumen += "\n"
+    else:
+        resumen += "✅ *Take Profit:* ningún disparo al cierre.\n"
 
-    bloques = [resumen.strip()] + lineas
-    _enviar_reporte_partido(resumen.strip(), lineas)
-    if avisos:
-        _enviar_reporte_partido("⚠️ *SL/TP pendientes en MemoriaBot*", avisos)
+    if lineas_disparo:
+        _enviar_reporte_partido(resumen.strip(), lineas_disparo)
+    else:
+        enviar_mensaje_telegram(resumen.strip())
 
     limpiar_alertas_cartera()
 
